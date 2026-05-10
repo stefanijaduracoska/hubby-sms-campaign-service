@@ -1,4 +1,5 @@
 import { db } from "../db/database";
+import type { SqliteError } from "better-sqlite3";
 
 export type RecipientStatus =
   | "queued"
@@ -47,6 +48,15 @@ function mapRecipient(row: RecipientRow): Recipient {
   };
 }
 
+function isSqliteUniqueConstraintError(error: unknown): error is SqliteError {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "SQLITE_CONSTRAINT_UNIQUE"
+  );
+}
+
 export function createRecipient(input: {
   campaignId: number;
   iccid: string;
@@ -65,11 +75,7 @@ export function createRecipient(input: {
         VALUES (?, ?, ?, 'queued')
         `
       )
-      .run(
-        input.campaignId,
-        input.iccid,
-        JSON.stringify(input.variables)
-      );
+      .run(input.campaignId, input.iccid, JSON.stringify(input.variables));
 
     const row = db
       .prepare(
@@ -82,8 +88,12 @@ export function createRecipient(input: {
       .get(result.lastInsertRowid) as RecipientRow;
 
     return mapRecipient(row);
-  } catch {
-    return null;
+  } catch (error) {
+    if (isSqliteUniqueConstraintError(error)) {
+      return null;
+    }
+
+    throw error;
   }
 }
 
